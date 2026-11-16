@@ -48,11 +48,12 @@ const T = THREE;
 // Every wall, door and window number below is read off sheet A-01
 // of the Bada Bharuwala plan (36'-0" x 20'-0" outside to outside).
 // ---------------------------------------------------------------
-const H = 10;          // wall height (assumed, plan gives none)
-const DOOR_H = 7;      // door head height (assumed)
-const EYE = 5.4;       // eye height
+const H = 9.5;         // clear floor-to-ceiling 9'-6" (2.9 m): 10' floor-to-floor less a 5" RCC slab. NBC 2016 minimum is 2.75 m
+const SLAB = 0.42;     // 5" roof slab
+const DOOR_H = 7;      // door head 7'-0" (2.1 m), Indian standard
+const EYE = 5.1;       // standing eye height of a 5'-6" adult (~1.55 m)
 const PR = 0.45;       // player collision radius
-const GROUND = -0.6;   // outside ground level, floor is at 0
+const GROUND = -1.08;  // plinth 13": two 6.5" risers from the ground to the finished floor
 const ENVI = 0.55;
 
 let seed = 1337;
@@ -70,7 +71,7 @@ document.body.appendChild(renderer.domElement);
 const canvas = renderer.domElement;
 
 const scene = new T.Scene();
-const camera = new T.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 900);
+const camera = new T.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 900);
 camera.rotation.order = 'YXZ';
 
 const house = new T.Group(); scene.add(house);
@@ -95,7 +96,7 @@ function woodTex(base) {
     for (let r = 0; r < rows; r++) {
       let x = -rnd() * w * 0.4;
       while (x < w) {
-        const len = w * (0.3 + rnd() * 0.3);
+        const len = w * (0.45 + rnd() * 0.35);
         g.save(); g.beginPath(); g.rect(x, r * rh, len, rh); g.clip();
         g.fillStyle = shade(base, 0.84 + rnd() * 0.3); g.fillRect(x, r * rh, len, rh);
         for (let i = 0; i < 34; i++) {
@@ -181,6 +182,11 @@ const tPlaster = speckTex([240, 236, 226], 2500);
 
 const mWall = M(0xf4f0e6, { roughness: 0.95 });
 const mCap = M(0x2e3238, { roughness: 0.9 });
+const mSkirt = M(0xd8d0c2, { roughness: 0.5 });
+const mFanBody = M(0xece8e0, { roughness: 0.35, metalness: 0.2 });
+const mFanBlade = M(0xe2dccf, { roughness: 0.45 });
+const mCurtain = M(0xe8dfcf, { roughness: 1, side: T.DoubleSide });
+const mLeg = M(0x3b2a1e, { roughness: 0.6 });
 const mCeil = M(0xfafaf7, { roughness: 1 });
 const mFloorWood = M(0xffffff, { map: tWood, roughness: 0.55 });
 const mFloorTile = M(0xffffff, { map: tTile, roughness: 0.32 });
@@ -236,7 +242,9 @@ function Cyl(x, z, rTop, rBot, y0, y1, mat, parent, seg) {
 function wallBox(x0, z0, x1, z1, y0, y1) {
   const mats = [mWall, mWall, y1 >= H ? mCap : mWall, mWall, mWall, mWall];
   const m = B(x0, z0, x1, z1, y0, y1, mats);
+  m.userData.wall = true;
   if (y0 < 4) solid(x0, z0, x1, z1);
+  if (y0 === 0) B(x0 - 0.04, z0 - 0.04, x1 + 0.04, z1 + 0.04, 0, 0.33, mSkirt, house, true);
   return m;
 }
 function floor(x0, z0, x1, z1, y, mat, size) {
@@ -264,13 +272,13 @@ function vpl(axis, c, a, b, y0, y1, face, mat, size, parent) {
   const uv = g.geometry.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 110, uv.getY(i) * 110);
   g.rotation.x = -Math.PI / 2; g.position.set(18, GROUND, 10); g.receiveShadow = true; scene.add(g);
   B(-0.15, -0.15, 36.15, 20.15, GROUND, 0, mConcrete);                 // plinth
-  B(1.34, 20.03, 4.14, 20.73, GROUND, -0.3, mConcrete);                // entry step (plan: 1.34..4.14)
+  B(1.34, 20.03, 4.14, 20.73, GROUND, -0.54, mConcrete);                // entry step (plan: 1.34..4.14)
 })();
 
 // ---------- floors ----------
 floor(0, 0, 36, 20, 0.01, mFloorTile, 4);                 // living / kitchen / dining, 2 ft tiles
-floor(0.55, 0.51, 13.48, 9.4, 0.03, mFloorWood, 5);       // bedroom 1
-floor(17.52, 0.51, 35.45, 9.4, 0.03, mFloorWood, 5);      // bedroom 2
+floor(0.55, 0.51, 13.48, 9.4, 0.03, mFloorWood, 6);       // bedroom 1
+floor(17.52, 0.51, 35.45, 9.4, 0.03, mFloorWood, 6);      // bedroom 2
 floor(13.97, 0.51, 17.52, 9.18, 0.035, mFloorBath, 4);    // en-suite
 floor(15.52, 14.49, 21.21, 19.49, 0.03, mFloorBath, 4);   // common bath
 
@@ -302,10 +310,10 @@ function door(axis, a, b, w0, w1, hinge, leaf, g) {
   const f = 0.1, p = 0.05, th = 0.14;
   if (axis === 'x') {
     wallBox(a, w0, b, w1, DOOR_H, H);
-    B(a, w0 - p, a + f, w1 + p, 0, DOOR_H, mFrame); B(b - f, w0 - p, b, w1 + p, 0, DOOR_H, mFrame); B(a, w0 - p, b, w1 + p, DOOR_H - f, DOOR_H, mFrame);
+    B(a, w0 - p, a + f, w1 + p, 0, DOOR_H, mFrame).userData.frame = true; B(b - f, w0 - p, b, w1 + p, 0, DOOR_H, mFrame).userData.frame = true; B(a, w0 - p, b, w1 + p, DOOR_H - f, DOOR_H, mFrame);
   } else {
     wallBox(w0, a, w1, b, DOOR_H, H);
-    B(w0 - p, a, w1 + p, a + f, 0, DOOR_H, mFrame); B(w0 - p, b - f, w1 + p, b, 0, DOOR_H, mFrame); B(w0 - p, a, w1 + p, b, DOOR_H - f, DOOR_H, mFrame);
+    B(w0 - p, a, w1 + p, a + f, 0, DOOR_H, mFrame).userData.frame = true; B(w0 - p, b - f, w1 + p, b, 0, DOOR_H, mFrame).userData.frame = true; B(w0 - p, a, w1 + p, b, DOOR_H - f, DOOR_H, mFrame);
   }
   const L = (b - a) - 2 * f - 0.02;
   const hx = hinge[0] + g[0] * (f + th / 2), hz = hinge[1] + g[1] * (f + th / 2);
@@ -336,29 +344,38 @@ function win(axis, a, b, w0, w1, sill, head, mull, glass) {
   P(mull - f / 2, mull + f / 2, sill, head, 0.1, mWinFrame);
   P(a + f, b - f, sill + f, head - f, 0.015, glass, true);
 }
-win('x', 14.41, 16.9, 0, 0.51, 4.5, 7, 15.66, mFrost);        // en-suite, north wall, 2'-6" wide
+win('x', 14.41, 16.9, 0, 0.51, 5, 7, 15.66, mFrost);        // en-suite, north wall, 2'-6" wide
 win('z', 14.18, 17.66, 35.45, 36, 3, 7, 15.92, mGlass);       // dining, east wall, 3'-6" wide
 
 // ---------- ceiling + roof (hidden in dollhouse view) ----------
 (function () {
   const c = new T.Mesh(new T.PlaneGeometry(34.9, 18.98), mCeil);
-  c.rotation.x = Math.PI / 2; c.position.set(18, H - 0.04, 10); roof.add(c);
-  const r = B(-0.7, -0.7, 36.7, 20.7, H - 0.02, H + 0.55, mCap, roof);
-  r.receiveShadow = false;
+  c.rotation.x = Math.PI / 2; c.position.set(18, H - 0.04, 10); c.userData.ceiling = true; roof.add(c);
+  B(-0.25, -0.25, 36.25, 20.25, H - 0.02, H + SLAB, mWall, roof);                 // 5" RCC slab with drip edge
+  B(0.3, 0.3, 35.7, 19.7, H + SLAB, H + SLAB + 0.06, mConcrete, roof, true);      // terrace finish
+  B(-0.25, -0.25, 36.25, 0.3, H + SLAB, H + SLAB + 3, mWall, roof);               // 3' parapet
+  B(-0.25, 19.7, 36.25, 20.25, H + SLAB, H + SLAB + 3, mWall, roof);
+  B(-0.25, 0.3, 0.3, 19.7, H + SLAB, H + SLAB + 3, mWall, roof);
+  B(35.7, 0.3, 36.25, 19.7, H + SLAB, H + SLAB + 3, mWall, roof);
 })();
+
+// sunshades (chajjas) at lintel level over the openings, 1'-9" deep
+B(36.0, 13.68, 37.75, 18.16, DOOR_H, DOOR_H + 0.33, mWall);
+B(0.9, 20.0, 4.6, 21.75, DOOR_H, DOOR_H + 0.33, mWall);
+B(14.2, -1.25, 17.1, 0, DOOR_H, DOOR_H + 0.25, mWall);
 
 // ---------- bathroom wall tiles, kitchen backsplash ----------
 vpl('x', 13.97, 0.51, 9.18, 0, H, 1, mBathWall, 4);
 vpl('x', 17.28, 0.51, 3.35, 0, H, -1, mBathWall, 4); vpl('x', 17.28, 5.44, 9.18, 0, H, -1, mBathWall, 4); vpl('x', 17.28, 3.35, 5.44, DOOR_H, H, -1, mBathWall, 4);
 vpl('z', 0.51, 13.97, 14.41, 0, H, 1, mBathWall, 4); vpl('z', 0.51, 16.9, 17.28, 0, H, 1, mBathWall, 4);
-vpl('z', 0.51, 14.41, 16.9, 0, 4.5, 1, mBathWall, 4); vpl('z', 0.51, 14.41, 16.9, 7, H, 1, mBathWall, 4);
+vpl('z', 0.51, 14.41, 16.9, 0, 5, 1, mBathWall, 4); vpl('z', 0.51, 14.41, 16.9, 7, H, 1, mBathWall, 4);
 vpl('z', 9.18, 13.97, 17.28, 0, H, -1, mBathWall, 4);
 vpl('z', 14.49, 15.52, 20.97, 0, H, 1, mBathWall, 4);
 vpl('x', 15.52, 14.49, 19.49, 0, H, 1, mBathWall, 4);
 vpl('z', 19.49, 15.52, 20.97, 0, H, -1, mBathWall, 4);
 vpl('x', 20.97, 14.49, 14.78, 0, H, -1, mBathWall, 4); vpl('x', 20.97, 16.9, 19.49, 0, H, -1, mBathWall, 4); vpl('x', 20.97, 14.78, 16.9, DOOR_H, H, -1, mBathWall, 4);
-vpl('z', 9.62, 28.24, 35.45, 3.0, 4.8, 1, mSplash, 4);
-vpl('x', 35.45, 9.62, 13.35, 3.0, 4.8, -1, mSplash, 4);
+vpl('z', 9.62, 28.24, 35.45, 2.83, 4.83, 1, mSplash, 4);
+vpl('x', 35.45, 9.62, 13.35, 2.83, 4.83, -1, mSplash, 4);
 
 // ---------- furniture pieces ----------
 function lamp(x, z, y) {
@@ -385,9 +402,9 @@ function bed(x0, z0, x1, z1, hb, duvet, accent, throwBand) {
   solid(x0, hb[1], x1, z1);
 }
 function wardrobe(x0, z0, x1, z1, frontX) {
-  B(x0, z0, x1, z1, 0, 7.2, mWoodF); solid(x0, z0, x1, z1);
+  B(x0, z0, x1, z1, 0, 7.0, mWoodF); solid(x0, z0, x1, z1);
   const n = 4, d = (z1 - z0) / n, s = frontX > x0 ? 1 : -1;
-  for (let i = 1; i < n; i++) B(frontX, z0 + i * d - 0.02, frontX + s * 0.02, z0 + i * d + 0.02, 0.15, 7.1, mWoodDark, house, true);
+  for (let i = 1; i < n; i++) B(frontX, z0 + i * d - 0.02, frontX + s * 0.02, z0 + i * d + 0.02, 0.15, 6.9, mWoodDark, house, true);
   for (let i = 0; i < n; i++) { const hz = z0 + i * d + (i % 2 ? 0.2 : d - 0.2); B(frontX, hz - 0.03, frontX + s * 0.1, hz + 0.03, 3.1, 3.9, mSteel, house, true); }
 }
 function picture(axis, c, a, b, y0, y1, face, tex) {
@@ -409,19 +426,21 @@ function plant(x, z, s, y0) {
   }
 }
 function chair(x0, z0, x1, z1, back) {
-  B(x0, z0, x1, z1, 1.3, 1.55, mChair);
+  B(x0, z0, x1, z1, 1.27, 1.5, mChair);
   const t = 0.16; let r;
   if (back === 'n') r = [x0, z0, x1, z0 + t]; else if (back === 's') r = [x0, z1 - t, x1, z1]; else if (back === 'w') r = [x0, z0, x0 + t, z1]; else r = [x1 - t, z0, x1, z1];
-  B(r[0], r[1], r[2], r[3], 1.55, 3.05, mChair);
-  const l = 0.1; [[x0, z0], [x1 - l, z0], [x0, z1 - l], [x1 - l, z1 - l]].forEach(function (q) { B(q[0], q[1], q[0] + l, q[1] + l, 0, 1.3, mWoodDark); });
+  B(r[0], r[1], r[2], r[3], 1.5, 2.85, mChair);
+  const l = 0.1; [[x0, z0], [x1 - l, z0], [x0, z1 - l], [x1 - l, z1 - l]].forEach(function (q) { B(q[0], q[1], q[0] + l, q[1] + l, 0, 1.27, mWoodDark); });
 }
-function toilet(tx0, tz0, tx1, tz1) {            // tank on the west wall, bowl facing east
-  B(tx0, tz0, tx1, tz1, 1.2, 2.6, mCeramic);
-  const cz = (tz0 + tz1) / 2, cx = tx1 + 0.55;
-  const bowl = Cyl(cx, cz, 1, 0.7, 0, 1.3, mCeramic, house, 24); bowl.scale.set(0.62, 1, 0.42);
-  const lid = Cyl(cx, cz, 1, 1, 1.3, 1.38, mCeramic, house, 24); lid.scale.set(0.64, 1, 0.44);
-  B(tx1 - 0.05, cz - 0.3, tx1 + 0.3, cz + 0.3, 0, 1.3, mCeramic);
-  solid(tx0, tz0, cx + 0.6, tz1);
+function toilet(wx, cz) {         // close-coupled WC on the west wall, facing east: 1'-11" projection, 16" seat, 30" tank top
+  B(wx, cz - 0.67, wx + 0.58, cz + 0.67, 1.25, 2.5, mCeramic);
+  const cx = wx + 0.58 + 0.6;
+  const bowl = Cyl(cx, cz, 1, 0.72, 0.22, 1.25, mCeramic, house, 28); bowl.scale.set(0.68, 1, 0.58);
+  const ped = Cyl(cx - 0.12, cz, 1, 1, 0, 0.24, mCeramic, house, 24); ped.scale.set(0.45, 1, 0.34);
+  const seat = Cyl(cx, cz, 1, 1, 1.25, 1.33, mCeramic, house, 28); seat.scale.set(0.7, 1, 0.6);
+  B(wx + 0.5, cz - 0.42, wx + 0.78, cz + 0.42, 0.24, 1.25, mCeramic);
+  B(wx + 0.22, cz - 0.08, wx + 0.36, cz + 0.08, 2.5, 2.53, mSteel, house, true);
+  solid(wx, cz - 0.67, cx + 0.68, cz + 0.67);
 }
 function vanity(x0, z0, x1, z1, wall) {          // wall: 'w' or 's' = side the tap sits on
   B(x0, z0, x1, z1, 0.5, 2.6, mWoodF); B(x0 - 0.03, z0 - 0.03, x1 + 0.03, z1 + 0.03, 2.6, 2.85, mCeramic);
@@ -461,36 +480,39 @@ B(13.97, 2.7, 15.75, 2.74, 0.1, 6.6, mGlass, house, true); solid(13.97, 2.66, 15
 B(13.97, 2.68, 15.75, 2.76, 6.6, 6.68, mSteel, house, true);
 B(13.99, 1.17, 14.6, 1.23, 6.5, 6.56, mSteel, house, true); Cyl(14.55, 1.2, 0.2, 0.2, 6.36, 6.42, mSteel);
 Cyl(16.76, 2.35, 0.13, 0.13, 0.1, 0.11, mSteel);
-toilet(14.1, 3.83, 14.52, 4.78);
+toilet(13.97, 4.3);
 vanity(14.07, 5.41, 15.17, 6.61, 'w');
 B(13.99, 5.5, 14.02, 6.52, 3.5, 5.6, mMirror, house, true);
 plant(14.6, 8.55, 0.55);
 
 // ---------- living room ----------
-B(1.1, 10.82, 9.62, 13.86, 0.25, 1.3, mSofa); B(1.1, 13.86, 4.07, 16.74, 0.25, 1.3, mSofa);     // L-shaped base
-B(1.1, 10.82, 9.62, 11.58, 1.3, 2.75, mSofaDk); B(1.1, 11.58, 2.0, 16.74, 1.3, 2.75, mSofaDk);  // backs
-B(8.93, 11.58, 9.62, 13.86, 1.3, 2.1, mSofaDk); B(2.0, 16.17, 4.07, 16.74, 1.3, 2.1, mSofaDk);  // arms
-[[2.03, 3.83], [3.89, 6.42], [6.48, 8.9]].forEach(function (c) { B(c[0], 11.6, c[1], 13.8, 1.3, 1.62, mSofa); });
-[[11.6, 13.55], [13.61, 15.1], [15.16, 16.14]].forEach(function (c, i) { if (i) B(2.03, c[0], 4.0, c[1], 1.3, 1.62, mSofa); });
+[[1.25, 10.97], [9.47, 10.97], [9.47, 13.71], [3.92, 13.71], [3.92, 16.59], [1.25, 16.59]].forEach(function (q) { Cyl(q[0], q[1], 0.07, 0.05, 0, 0.33, mLeg); });
+B(1.1, 10.82, 9.62, 13.86, 0.33, 1.08, mSofaDk); B(1.1, 13.86, 4.07, 16.74, 0.33, 1.08, mSofaDk);      // L-shaped frame, plan footprint
+B(1.1, 10.82, 9.62, 11.58, 1.08, 2.75, mSofaDk); B(1.1, 11.58, 2.0, 16.74, 1.08, 2.75, mSofaDk);       // backs, 33" high
+B(8.95, 11.58, 9.62, 13.86, 1.08, 2.08, mSofaDk); B(2.0, 16.2, 4.07, 16.74, 1.08, 2.08, mSofaDk);      // arms, 25" high
+[[2.02, 4.3], [4.34, 6.62], [6.66, 8.93]].forEach(function (c) { B(c[0], 11.6, c[1], 13.84, 1.08, 1.5, mSofa); });   // seat cushions, 18" seat
+B(2.02, 13.88, 4.05, 16.18, 1.08, 1.5, mSofa);                                                           // chaise cushion
+[[2.05, 4.28], [4.36, 6.6], [6.68, 8.9]].forEach(function (c) { const m = B(c[0], 11.58, c[1], 12.12, 1.5, 2.6, mSofa); m.rotation.x = -0.12; });
+[[12.2, 13.84], [13.9, 16.15]].forEach(function (c) { const m = B(2.0, c[0], 2.54, c[1], 1.5, 2.6, mSofa); m.rotation.z = 0.12; });
 (function cushions() {
-  [[2.5, 12.0, 0.5, mGreen], [3.2, 11.95, 0.2, mGreen], [2.35, 12.9, 0.9, mLinen]].forEach(function (c) {
-    const m = B(c[0] - 0.5, c[1] - 0.12, c[0] + 0.5, c[1] + 0.12, 1.62, 2.55, c[3]); m.rotation.y = c[2]; m.rotation.x = -0.25;
+  [[3.0, 12.45, 0.5, mGreen], [3.75, 12.35, 0.2, mGreen], [2.95, 13.3, 1.1, mLinen]].forEach(function (c) {
+    const m = B(c[0] - 0.5, c[1] - 0.12, c[0] + 0.5, c[1] + 0.12, 1.5, 2.35, c[3]); m.rotation.y = c[2]; m.rotation.x = -0.2;
   });
 })();
 solid(1.1, 10.82, 9.62, 13.86); solid(1.1, 13.86, 4.07, 16.74);
 B(3.3, 12.4, 12.7, 18.7, 0.03, 0.07, mRugLiv, house, true);
-B(6.14, 14.37, 9.52, 16.87, 1.15, 1.3, mWoodF); B(6.3, 14.53, 9.36, 16.71, 0.35, 0.43, mWoodDark);
-[[6.2, 14.43], [9.34, 14.43], [6.2, 16.69], [9.34, 16.69]].forEach(function (q) { B(q[0], q[1], q[0] + 0.12, q[1] + 0.12, 0, 1.15, mWoodDark); });
+B(6.14, 14.37, 9.52, 16.87, 1.27, 1.42, mWoodF); B(6.3, 14.53, 9.36, 16.71, 0.35, 0.43, mWoodDark);
+[[6.2, 14.43], [9.34, 14.43], [6.2, 16.69], [9.34, 16.69]].forEach(function (q) { B(q[0], q[1], q[0] + 0.12, q[1] + 0.12, 0, 1.27, mWoodDark); });
 solid(6.14, 14.37, 9.52, 16.87);
-plant(7.65, 15.3, 0.4, 1.3); B(8.0, 15.85, 8.6, 16.3, 1.3, 1.36, mLinen);
+plant(7.65, 15.3, 0.4, 1.42); B(8.0, 15.85, 8.6, 16.3, 1.42, 1.48, mLinen);
 B(13.52, 14.94, 14.69, 18.77, 0, 1.8, mWoodF); solid(13.52, 14.94, 14.69, 18.77);              // TV console
-B(14.14, 15.35, 14.31, 18.35, 2.0, 4.1, mBlack); B(14.13, 15.4, 14.14, 18.3, 2.05, 4.05, mScreen, house, true);
-B(14.1, 16.6, 14.4, 17.1, 1.8, 2.0, mBlack);
+const tv = B(14.14, 15.35, 14.31, 18.35, 2.12, 3.81, mBlack); tv.userData.tv = true; B(14.13, 15.4, 14.14, 18.3, 2.16, 3.77, mScreen, house, true);
+B(14.1, 16.6, 14.4, 17.1, 1.8, 2.12, mBlack);
 picture('x', 0.55, 12.6, 15.0, 4.3, 6.3, 1, paintTex(['#e8efe6', '#f4f0e4'], ['#9cb38d', '#6f9068', '#4c6f4f'], '#f3e2b2'));
 plant(1.05, 18.75, 0.8); plant(14.2, 14.35, 0.8);
 
 // ---------- common bath (5'-5" x 5'-0") ----------
-toilet(15.69, 15.89, 16.1, 16.84);
+toilet(15.52, 16.37);
 B(15.52, 17.63, 17.76, 19.49, 0.03, 0.1, M(0x6f7477, { roughness: 0.35 }), house, true);
 B(15.52, 17.61, 17.76, 17.65, 0.1, 6.6, mGlass, house, true); solid(15.52, 17.57, 17.76, 17.69);
 B(15.52, 17.59, 17.76, 17.67, 6.6, 6.68, mSteel, house, true);
@@ -499,37 +521,52 @@ Cyl(17.35, 19.0, 0.13, 0.13, 0.1, 0.11, mSteel);
 vanity(18.93, 18.45, 20.52, 19.34, 's');
 B(19.0, 19.44, 20.45, 19.47, 3.5, 5.6, mMirror, house, true);
 
-// ---------- kitchen ----------
-B(26.41, 10.03, 28.24, 12.22, 0, 6.2, mSteel); solid(26.41, 10.03, 28.24, 12.22);               // fridge
-B(26.45, 12.22, 28.2, 12.24, 4.28, 4.32, mBlack, house, true);
-B(27.95, 12.22, 28.01, 12.3, 4.6, 5.8, mBlack, house, true); B(27.95, 12.22, 28.01, 12.3, 2.4, 4.0, mBlack, house, true);
-B(28.24, 10.03, 35.17, 11.5, 0.3, 2.9, mCab); B(33.74, 11.5, 35.17, 13.35, 0.3, 2.9, mCab);      // base cabinets (L)
-B(28.3, 10.1, 35.1, 11.42, 0, 0.3, mBlack, house, true); B(33.82, 11.42, 35.1, 13.28, 0, 0.3, mBlack, house, true);
-B(28.24, 9.63, 35.44, 11.55, 2.9, 3.02, mCounter); B(33.69, 11.55, 35.44, 13.35, 2.9, 3.02, mCounter);
-[28.69, 30.24, 31.79, 33.31].forEach(function (x) { B(x - 0.012, 11.5, x + 0.012, 11.515, 0.35, 2.85, mBlack, house, true); B(x + 0.1, 11.5, x + 0.14, 11.56, 2.2, 2.7, mSteel, house, true); });
-[11.87, 12.85].forEach(function (z) { B(33.725, z - 0.012, 33.74, z + 0.012, 0.35, 2.85, mBlack, house, true); B(33.68, z + 0.1, 33.74, z + 0.14, 2.2, 2.7, mSteel, house, true); });
-solid(28.24, 10.03, 35.17, 11.55); solid(33.69, 11.55, 35.17, 13.35);
-B(29.38, 10.19, 31.59, 11.3, 3.02, 3.05, mBlack, house, true);                                   // hob
-[[29.9, 10.5], [29.9, 10.98], [31.07, 10.5], [31.07, 10.98]].forEach(function (q) { Cyl(q[0], q[1], 0.17, 0.17, 3.05, 3.09, mSteel); });
-B(33.86, 10.16, 35.0, 11.39, 3.02, 3.04, mSteel, house, true); B(33.96, 10.26, 34.9, 11.29, 3.04, 3.045, M(0x7f858a, { roughness: 0.25, metalness: 0.9 }), house, true);
-Cyl(33.93, 10.78, 0.035, 0.035, 3.02, 3.7, mSteel); B(33.9, 10.75, 34.3, 10.81, 3.66, 3.72, mSteel, house, true);
-Cyl(32.6, 10.6, 0.33, 0.22, 3.02, 3.22, mCeramic);
-[[32.5, 10.55], [32.72, 10.6], [32.58, 10.75]].forEach(function (q) { const s = new T.Mesh(new T.SphereGeometry(0.13, 10, 8), M(0x9bbf3a)); s.position.set(q[0], 3.3, q[1]); house.add(s); });
+// ---------- kitchen: 2'-10" counter (Indian standard ~860 mm), 2' deep, wall units 2' above ----------
+const CT = 2.83;
+B(26.41, 10.03, 28.24, 12.22, 0, 5.9, mSteel); solid(26.41, 10.03, 28.24, 12.22);                     // fridge 22" x 26" x 5'-11"
+B(26.45, 12.22, 28.2, 12.24, 3.95, 3.99, mBlack, house, true);
+B(27.95, 12.22, 28.01, 12.3, 4.3, 5.5, mBlack, house, true); B(27.95, 12.22, 28.01, 12.3, 2.2, 3.7, mBlack, house, true);
+B(28.24, 9.62, 35.45, 11.5, 0.33, CT - 0.12, mCab); B(33.74, 11.5, 35.45, 13.35, 0.33, CT - 0.12, mCab);   // base units on a 4" plinth
+B(28.3, 9.62, 35.45, 11.42, 0, 0.33, mBlack, house, true); B(33.82, 11.42, 35.45, 13.28, 0, 0.33, mBlack, house, true);
+B(28.24, 9.62, 35.45, 11.55, CT - 0.12, CT, mCounter); B(33.69, 11.55, 35.45, 13.35, CT - 0.12, CT, mCounter);   // 1.5" granite
+[28.69, 30.24, 31.79, 33.31].forEach(function (x) { B(x - 0.012, 11.5, x + 0.012, 11.515, 0.35, CT - 0.15, mBlack, house, true); B(x + 0.1, 11.5, x + 0.14, 11.56, CT - 0.65, CT - 0.25, mSteel, house, true); });
+[11.87, 12.85].forEach(function (z) { B(33.725, z - 0.012, 33.74, z + 0.012, 0.35, CT - 0.15, mBlack, house, true); B(33.68, z + 0.1, 33.74, z + 0.14, CT - 0.65, CT - 0.25, mSteel, house, true); });
+solid(28.24, 9.62, 35.45, 11.55); solid(33.69, 11.55, 35.45, 13.35);
+B(29.38, 10.19, 31.59, 11.3, CT, CT + 0.03, mBlack, house, true);                                     // 4-burner hob
+[[29.9, 10.5], [29.9, 10.98], [31.07, 10.5], [31.07, 10.98]].forEach(function (q) { Cyl(q[0], q[1], 0.17, 0.17, CT + 0.03, CT + 0.07, mSteel); });
+B(33.86, 10.16, 35.0, 11.39, CT - 0.02, CT + 0.005, mSteel, house, true); B(33.96, 10.26, 34.9, 11.29, CT + 0.005, CT + 0.01, M(0x7f858a, { roughness: 0.25, metalness: 0.9 }), house, true);
+Cyl(34.43, 10.0, 0.035, 0.035, CT, CT + 0.8, mSteel); B(34.4, 10.0, 34.46, 10.5, CT + 0.74, CT + 0.8, mSteel, house, true);
+Cyl(32.6, 10.6, 0.33, 0.22, CT, CT + 0.2, mCeramic);
+[[32.5, 10.55], [32.72, 10.6], [32.58, 10.75]].forEach(function (q) { const s = new T.Mesh(new T.SphereGeometry(0.13, 10, 8), M(0x9bbf3a)); s.position.set(q[0], CT + 0.28, q[1]); house.add(s); });
+B(29.0, 9.62, 31.97, 11.25, CT + 2.5, CT + 2.82, mBlack);                                             // 3' chimney hood, 2'-6" above the hob
+B(30.0, 9.62, 30.97, 10.6, CT + 2.82, H, mSteel);
+B(28.24, 9.62, 29.0, 10.77, CT + 2, 7.0, mCab); B(31.97, 9.62, 35.45, 10.77, CT + 2, 7.0, mCab);      // wall units 14" deep, top at 7'
+B(34.3, 10.77, 35.45, 13.35, CT + 2, 7.0, mCab);
+[32.84, 33.71, 34.58].forEach(function (x) { B(x - 0.012, 10.77, x + 0.012, 10.785, CT + 2.05, 6.95, mBlack, house, true); });
+B(34.285, 12.05, 34.3, 12.08, CT + 2.05, 6.95, mBlack, house, true);
+[32.4, 33.3, 34.15, 35.0].forEach(function (x) { B(x - 0.15, 10.77, x + 0.15, 10.83, CT + 2.1, CT + 2.15, mSteel, house, true); });
 
 // ---------- dining ----------
 B(27.17, 13.39, 33.83, 19.05, 0.03, 0.07, mRugDin, house, true);
 B(27.97, 14.3, 33.1, 18.04, 2.35, 2.5, mWoodF);
 [[28.15, 14.48], [32.74, 14.48], [28.15, 17.68], [32.74, 17.68]].forEach(function (q) { B(q[0], q[1], q[0] + 0.18, q[1] + 0.18, 0, 2.35, mWoodDark); });
 solid(27.97, 14.3, 33.1, 18.04);
-chair(28.9, 13.45, 30.24, 14.34, 'n'); chair(30.93, 13.45, 32.28, 14.34, 'n');
-chair(28.9, 18.01, 30.24, 18.89, 's'); chair(30.93, 18.01, 32.28, 18.89, 's');
-chair(27.24, 15.55, 28.21, 16.79, 'w'); chair(32.83, 15.55, 33.79, 16.79, 'e');
+chair(28.82, 13.0, 30.32, 14.58, 'n'); chair(30.85, 13.0, 32.35, 14.58, 'n');
+chair(28.82, 17.76, 30.32, 19.34, 's'); chair(30.85, 17.76, 32.35, 19.34, 's');
+chair(26.67, 15.42, 28.25, 16.92, 'w'); chair(32.82, 15.42, 34.4, 16.92, 'e');
 B(30.59, 15.32, 31.66, 16.61, 2.5, 2.52, mLinen, house, true);
 Cyl(29.31, 15.92, 0.36, 0.24, 2.5, 2.7, mCeramic);
 [[29.2, 15.85], [29.42, 15.9], [29.3, 16.05]].forEach(function (q) { const s = new T.Mesh(new T.SphereGeometry(0.13, 10, 8), M(0x9bbf3a)); s.position.set(q[0], 2.78, q[1]); house.add(s); });
 plant(31.12, 15.96, 0.42, 2.52);
 plant(34.55, 18.6, 1.0);
-Cyl(30.5, 16.17, 0.02, 0.02, 6.9, H, mBlack, roof); const pend = Cyl(30.5, 16.17, 0.35, 0.75, 6.2, 6.9, mShade, roof); pend.castShadow = false;
+Cyl(30.5, 16.17, 0.02, 0.02, 5.95, H, mBlack, roof); const pend = Cyl(30.5, 16.17, 0.35, 0.75, 5.35, 5.95, mShade, roof);   // 34" above the table pend.castShadow = false;
+
+B(35.22, 13.3, 35.28, 18.55, 7.42, 7.48, mSteel, house, true);
+[[13.45, 14.45], [17.4, 18.4]].forEach(function (c) {
+  for (let z = c[0], i = 0; z < c[1] - 0.01; z += 0.2, i++) B(i % 2 ? 35.14 : 35.24, z, i % 2 ? 35.2 : 35.3, z + 0.2, 2.95, 7.4, mCurtain);
+});
+function sw(axis, c, a, face) { if (axis === 'z') B(a - 0.2, c, a + 0.2, c + face * 0.04, 3.85, 4.2, mCeramic, house, true); else B(c, a - 0.2, c + face * 0.04, a + 0.2, 3.85, 4.2, mCeramic, house, true); }
+sw('z', 9.18, 10.3, -1); sw('z', 9.18, 21.15, -1); sw('z', 19.49, 4.4, -1); sw('z', 9.62, 25.8, 1); sw('x', 20.97, 17.25, -1);
 
 // outside pots by the entry (from the reference render)
 plant(0.9, 20.9, 0.8, GROUND); plant(4.7, 20.9, 0.8, GROUND);
@@ -560,15 +597,26 @@ function ceilLight(x, z, color, intensity, dist) {
   const d = Cyl(x, z, 0.5, 0.5, H - 0.14, H - 0.04, mBulb, roof); d.castShadow = false;
   return pl(x, H - 1.6, z, color, intensity, dist);
 }
-ceilLight(7.0, 4.9, 0xffe2bd, 55, 20);       // bedroom 1 (no window on plan, so lamp-lit)
+const fans = [];
+function fan(x, z, color, intensity, dist) {     // 48" sweep, blades at ~8'-8", 7.5" downrod
+  const g = new T.Group(); g.position.set(x, 0, z); roof.add(g);
+  function c(rt, rb, y0, y1, mat) { const m = new T.Mesh(new T.CylinderGeometry(rt, rb, y1 - y0, 24), mat); m.position.y = (y0 + y1) / 2; m.castShadow = true; g.add(m); return m; }
+  c(0.22, 0.22, H - 0.12, H, mFanBody); c(0.035, 0.035, H - 0.75, H - 0.12, mFanBody); c(0.32, 0.32, H - 1.0, H - 0.75, mFanBody);
+  c(0.3, 0.16, H - 1.16, H - 1.0, mBulb).castShadow = false;
+  const rot = new T.Group(); rot.position.y = H - 0.86; g.add(rot);
+  for (let i = 0; i < 3; i++) { const arm = new T.Group(); arm.rotation.y = i * Math.PI * 2 / 3; const b = new T.Mesh(new T.BoxGeometry(1.7, 0.03, 0.36), mFanBlade); b.position.x = 0.32 + 0.85; b.rotation.x = 0.12; b.castShadow = true; arm.add(b); rot.add(arm); }
+  fans.push(rot);
+  return pl(x, H - 1.5, z, color, intensity, dist);
+}
+fan(7.25, 4.95, 0xffe2bd, 55, 20);           // bedroom 1 (no window on plan, so lamp-lit)
 pl(7.25, 3.4, 2.6, 0xffc98a, 14, 12);        // bedside lamps glow
-ceilLight(26.5, 4.9, 0xffe2bd, 60, 22);      // bedroom 2
+fan(25.94, 4.95, 0xffe2bd, 60, 22);         // bedroom 2
 pl(25.9, 3.4, 2.6, 0xffc98a, 14, 12);
 ceilLight(15.6, 5.6, 0xf4f7ff, 26, 12);      // en-suite
 ceilLight(18.2, 17.0, 0xf4f7ff, 30, 12);     // common bath
-ceilLight(7.5, 14.6, 0xffe9cc, 60, 24);      // living
+fan(7.6, 14.6, 0xffe9cc, 60, 24);            // living
 ceilLight(30.8, 11.6, 0xfff1dc, 42, 18);     // kitchen
-pl(30.5, 5.9, 16.17, 0xffd9a6, 40, 18);      // dining pendant
+pl(30.5, 5.1, 16.17, 0xffd9a6, 40, 18);      // dining pendant
 pl(34.3, 5.2, 15.92, 0xdcebff, 36, 20);      // sky light spilling in at the dining window
 pl(2.74, 5.5, 18.6, 0xe6f0ff, 22, 16);       // and at the open front door
 
@@ -629,7 +677,7 @@ function collide(p) {
 }
 function floorY(x, z) {
   if (x > -0.15 && x < 36.15 && z > -0.15 && z < 20.15) return 0;
-  if (x > 1.34 && x < 4.14 && z >= 20.15 && z < 20.73) return -0.3;
+  if (x > 1.34 && x < 4.14 && z >= 20.15 && z < 20.73) return -0.54;
   return GROUND;
 }
 function roomAt(x, z) {
@@ -738,7 +786,7 @@ window.addEventListener('resize', function () {
 // ---------- loop ----------
 const tp = new T.Vector3(), tq = new T.Quaternion(), te = new T.Euler(0, 0, 0, 'YXZ'), tm = new T.Matrix4(), tgt = new T.Vector3(), up = new T.Vector3(0, 1, 0);
 function pose() {
-  if (mode === 'walk') { tp.set(player.x, player.y + EYE, player.z); te.set(player.pitch, player.yaw, 0); tq.setFromEuler(te); return 70; }
+  if (mode === 'walk') { tp.set(player.x, player.y + EYE, player.z); te.set(player.pitch, player.yaw, 0); tq.setFromEuler(te); return 60; }
   tgt.set(orbit.tx, 2, orbit.tz);
   tp.set(tgt.x + orbit.r * Math.sin(orbit.pol) * Math.sin(orbit.az), tgt.y + orbit.r * Math.cos(orbit.pol), tgt.z + orbit.r * Math.sin(orbit.pol) * Math.cos(orbit.az));
   tm.lookAt(tp, tgt, up); tq.setFromRotationMatrix(tm); return 40;
@@ -752,7 +800,7 @@ function step(dt, real) {
     const n = Math.hypot(f, s);
     if (n > 0.01) {
       if (n > 1) { f /= n; s /= n; }
-      const sp = (keys.ShiftLeft || keys.ShiftRight ? 9.5 : 5.2) * dt;
+      const sp = (keys.ShiftLeft || keys.ShiftRight ? 9 : 4.6) * dt;
       const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
       const dx = (-sy * f + cy * s) * sp, dz = (-cy * f - sy * s) * sp;
       const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / 0.2));
@@ -775,12 +823,47 @@ function step(dt, real) {
 }
 function frame(now) {
   const real = (now - last) / 1000, dt = Math.min(0.1, real); last = now;
-  step(dt, Math.min(0.4, real)); renderer.render(scene, camera); requestAnimationFrame(frame);
+  step(dt, Math.min(0.4, real));
+  for (let i = 0; i < fans.length; i++) fans[i].rotation.y -= Math.min(0.1, real) * 4.5; renderer.render(scene, camera); requestAnimationFrame(frame);
 }
 updateUI(); pose(); camera.position.copy(tp); camera.quaternion.copy(tq);
 requestAnimationFrame(frame);
 
-window.tour = { player: player, orbit: orbit, setMode: setMode, solids: solids, step: step, keys: keys, collide: collide, get mode() { return mode; }, get busy() { return !!trans; }, renderer: renderer, scene: scene, camera: camera, roof: roof };
+function audit() {
+  const rc = new T.Raycaster(), walls = [], frames = [], ceil = [], all = [];
+  house.traverse(function (o) { if (!o.isMesh) return; all.push(o); if (o.userData.wall) walls.push(o); if (o.userData.frame) frames.push(o); });
+  roof.traverse(function (o) { if (o.isMesh && o.userData.ceiling) ceil.push(o); });
+  const rv = roof.visible; roof.visible = true; scene.updateMatrixWorld(true);
+  function hit(list, o, d) { rc.set(new T.Vector3(o[0], o[1], o[2]), new T.Vector3(d[0], d[1], d[2]).normalize()); rc.far = 200; const h = rc.intersectObjects(list, false)[0]; return h ? h.distance : NaN; }
+  function span(list, x, y, z, ax) { const d = ax === 'x' ? [1, 0, 0] : [0, 0, 1]; return +(hit(list, [x, y, z], d) + hit(list, [x, y, z], d.map(function (v) { return -v; }))).toFixed(2); }
+  function top(x, z) { return +(7 - hit(all, [x, 7, z], [0, -1, 0])).toFixed(2); }
+  const wf = walls.concat(frames);
+  const out = {
+    rooms: {
+      'Bedroom 1': [span(walls, 7, 8.5, 4.85, 'x'), span(walls, 7, 8.5, 4.85, 'z')],
+      'En-suite': [span(walls, 15.6, 8.5, 4.4, 'x'), span(walls, 15.6, 8.5, 4.4, 'z')],
+      'Bedroom 2': [span(walls, 26.6, 8.5, 4.85, 'x'), span(walls, 26.6, 8.5, 4.85, 'z')],
+      'Common bath': [span(walls, 18.2, 8.5, 17.0, 'x'), span(walls, 18.2, 8.5, 17.0, 'z')],
+      'Living/kitchen/dining depth': [span(walls, 25, 8.5, 12, 'z')],
+      'House outside': [+(hit(walls, [-5, 8.5, 5], [1, 0, 0]) + 0).toFixed(2), +(hit(walls, [41, 8.5, 5], [-1, 0, 0])).toFixed(2)]
+    },
+    ceiling: +(hit(ceil, [7, 1, 4.85], [0, 1, 0]) + 1).toFixed(2),
+    doors: {
+      main: span(wf, 2.74, 3, 19.745, 'x'), bedroom1: span(wf, 11.9, 3, 9.4, 'x'), bedroom2: span(wf, 19.55, 3, 9.4, 'x'),
+      ensuite: span(wf, 17.52, 3, 4.395, 'z'), commonBath: span(wf, 21.21, 3, 15.84, 'z')
+    },
+    heights: {
+      sofaSeat: top(5.4, 12.9), sofaArm: top(9.3, 12.9), sofaBack: top(5.4, 11.0), coffeeTable: top(6.5, 14.6),
+      bed: top(7.25, 6.6), nightstand: top(2.85, 2.8), wardrobe: top(1.8, 4.0), diningTable: top(29.0, 17.0), diningChair: top(29.57, 13.7),
+      kitchenCounter: top(31.0, 11.45), wcSeat: top(15.15, 4.3), basin: top(14.3, 6.4), doorHead: top(11.9, 9.4), tvBottom: 0, tvTop: 0
+    }
+  };
+  const tvb = new T.Box3().setFromObject(tv); out.heights.tvBottom = +tvb.min.y.toFixed(2); out.heights.tvTop = +tvb.max.y.toFixed(2); out.tvWidth = +(tvb.max.z - tvb.min.z).toFixed(2);
+  roof.visible = rv;
+  return out;
+}
+
+window.tour = { audit: audit, player: player, orbit: orbit, setMode: setMode, solids: solids, step: step, keys: keys, collide: collide, get mode() { return mode; }, get busy() { return !!trans; }, renderer: renderer, scene: scene, camera: camera, roof: roof };
 })();
 
 </script>
